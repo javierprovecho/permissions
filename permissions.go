@@ -1,11 +1,13 @@
 package permissions
 
-// The Negroni middleware handler
+// The Martini middleware handler
 
 import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/go-martini/martini"
 )
 
 type Permissions struct {
@@ -92,60 +94,62 @@ func PermissionDenied(rw http.ResponseWriter, req *http.Request) {
 }
 
 // Check if the user has the right admin/user rights
-func (perm *Permissions) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.HandlerFunc) {
+func (perm *Permissions) All() martini.Handler {
+	return func(rw http.ResponseWriter, req *http.Request, c martini.Context) {
 
-	path := req.URL.Path // the path of the url that the user wish to visit
-	reject := false
+		path := req.URL.Path // the path of the url that the user wish to visit
+		reject := false
 
-	// If it's not "/" and set to be public regardless of permissions
-	if !(perm.rootIsPublic && path == "/") {
+		// If it's not "/" and set to be public regardless of permissions
+		if !(perm.rootIsPublic && path == "/") {
 
-		// Reject if it is an admin page and user does not have admin permissions
-		for _, prefix := range perm.adminPathPrefixes {
-			if strings.HasPrefix(path, prefix) {
-				if !perm.state.AdminRights(req) {
-					reject = true
-					break
-				}
-			}
-		}
-
-		if !reject {
-			// Reject if it's a user page and the user does not have user rights
-			for _, prefix := range perm.userPathPrefixes {
+			// Reject if it is an admin page and user does not have admin permissions
+			for _, prefix := range perm.adminPathPrefixes {
 				if strings.HasPrefix(path, prefix) {
-					if !perm.state.UserRights(req) {
+					if !perm.state.AdminRights(req) {
 						reject = true
 						break
 					}
 				}
 			}
-		}
 
-		if !reject {
-			// Reject if it's not a public page
-			found := false
-			for _, prefix := range perm.publicPathPrefixes {
-				if strings.HasPrefix(path, prefix) {
-					found = true
-					break
+			if !reject {
+				// Reject if it's a user page and the user does not have user rights
+				for _, prefix := range perm.userPathPrefixes {
+					if strings.HasPrefix(path, prefix) {
+						if !perm.state.UserRights(req) {
+							reject = true
+							break
+						}
+					}
 				}
 			}
-			if !found {
-				reject = true
+
+			if !reject {
+				// Reject if it's not a public page
+				found := false
+				for _, prefix := range perm.publicPathPrefixes {
+					if strings.HasPrefix(path, prefix) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					reject = true
+				}
 			}
+
 		}
 
+		if reject {
+			// Permission denied function
+			perm.denied(rw, req)
+
+			// Reject the request by not calling the next handler below
+			return
+		}
+
+		// Call the next middleware handler
+		c.Next()
 	}
-
-	if reject {
-		// Permission denied function
-		perm.denied(rw, req)
-
-		// Reject the request by not calling the next handler below
-		return
-	}
-
-	// Call the next middleware handler
-	next(rw, req)
 }
